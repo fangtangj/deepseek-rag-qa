@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>RAG 课程答疑</title>
+<style>
+  :root{
+    --bg:#f5f6f8; --card:#ffffff; --fg:#1f2328; --muted:#6b7280;
+    --line:#e5e7eb; --brand:#2563eb; --brand-soft:#eff6ff; --warn:#b45309;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+       font:15px/1.75 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif}
+  .wrap{max-width:880px;margin:0 auto;padding:30px 20px 70px}
+  header h1{margin:0 0 6px;font-size:21px;font-weight:600}
+  header p{margin:0 0 22px;color:var(--muted);font-size:13px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:16px}
+  .modes{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:4px}
+  .modes button{padding:7px 14px;border:1px solid var(--line);background:#fff;border-radius:8px;
+                cursor:pointer;font-size:13px;color:var(--muted);font-family:inherit}
+  .modes button.on{background:var(--brand-soft);border-color:#bfdbfe;color:var(--brand);font-weight:500}
+  .hint{color:var(--muted);font-size:12px;margin:8px 0 14px;min-height:18px}
+  textarea{width:100%;min-height:78px;padding:11px 12px;border:1px solid var(--line);
+           border-radius:9px;resize:vertical;font:inherit;outline:none;color:var(--fg)}
+  textarea:focus{border-color:#bfdbfe;box-shadow:0 0 0 3px var(--brand-soft)}
+  .row{display:flex;justify-content:space-between;align-items:center;margin-top:12px;gap:12px}
+  .status{color:var(--muted);font-size:12.5px}
+  .go{padding:9px 24px;border:0;border-radius:9px;background:var(--brand);color:#fff;
+      font-size:14px;cursor:pointer;font-family:inherit}
+  .go:disabled{opacity:.5;cursor:default}
+  .item{background:var(--card);border:1px solid var(--line);border-radius:12px;
+        padding:16px 18px;margin-bottom:14px}
+  .q{font-weight:500;margin:0 0 4px;display:flex;gap:8px;align-items:flex-start}
+  .q .tag{flex:0 0 auto;font-size:11px;font-weight:400;padding:2px 8px;border-radius:20px;
+          background:var(--brand-soft);color:var(--brand);border:1px solid #bfdbfe;line-height:1.6}
+  .q .tag.plain{background:#f9fafb;color:var(--muted);border-color:var(--line)}
+  .a{margin:12px 0 0;padding-top:12px;border-top:1px dashed var(--line);white-space:normal}
+  .a p{margin:0 0 10px}
+  .a ul,.a ol{margin:0 0 10px;padding-left:22px}
+  .a li{margin:2px 0}
+  .a code{background:#f3f4f6;padding:1px 5px;border-radius:4px;font-size:13px;
+          font-family:ui-monospace,Consolas,monospace}
+  .a h4{margin:14px 0 6px;font-size:14.5px;font-weight:600}
+  .meta{margin-top:12px;color:var(--muted);font-size:12px;display:flex;gap:14px;flex-wrap:wrap}
+  .src{color:var(--warn)}
+  .err{color:#b91c1c}
+  .empty{color:var(--muted);font-size:13px;text-align:center;padding:26px 0}
+  .foot{color:var(--muted);font-size:12px;text-align:center;margin-top:26px;line-height:1.9}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>RAG 课程答疑</h1>
+    <p>基于 8 份课程资料做检索增强，回答附原文引用</p>
+  </header>
+
+  <div class="card">
+    <div class="modes">
+      <button class="on" data-mode="rag">检索增强（RAG）</button>
+      <button data-mode="plain">对照组 · 直接问模型</button>
+    </div>
+    <div class="hint" id="hint">只依据课程资料作答，答案附出处</div>
+
+    <textarea id="q" placeholder="输入你的问题，例如：Redis 缓存雪崩怎么解决？"></textarea>
+
+    <div class="row">
+      <span class="status" id="status"></span>
+      <button class="go" id="go">提问</button>
+    </div>
+  </div>
+
+  <div id="list"><div class="empty">还没有提问记录</div></div>
+
+  <div class="foot">
+    两个模式可切换，对照观察「检索增强」与「直接提问」的差别<br />
+    启动顺序：Docker Desktop 就绪 → 运行应用 → 打开本页
+  </div>
+
+</div>
+
+<script>
+(function () {
+  var mode = 'rag';
+  var listEl = document.getElementById('list');
+  var qEl = document.getElementById('q');
+  var goEl = document.getElementById('go');
+  var statusEl = document.getElementById('status');
+  var hintEl = document.getElementById('hint');
+  var items = [];
+
+  var HINTS = {
+    rag: '检索增强：先从课程资料里检索相关片段，再让模型基于片段作答，答案附出处',
+    plain: '对照组：不带检索直接把问题丢给模型，用于和 RAG 做准确率对比'
+  };
+
+  document.querySelectorAll('.modes button').forEach(function (b) {
+    b.addEventListener('click', function () {
+      mode = b.dataset.mode;
+      document.querySelectorAll('.modes button').forEach(function (x) {
+        x.classList.toggle('on', x === b);
+      });
+      hintEl.textContent = HINTS[mode];
+    });
+  });
+
+  var esc = function (s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  };
+
+  function mdToHtml(s) {
+    var t = esc(s);
+    t = t.replace(/^#{1,6}\s*(.+)$/gm, '<h4>$1</h4>');
+    t = t.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    t = t.replace(/`([^`]+)`/g, '<code>$1</code>');
+    var lines = t.split('\n');
+    var out = [], buf = [];
+    var flush = function () {
+      if (buf.length) { out.push('<ul>' + buf.join('') + '</ul>'); buf = []; }
+    };
+    lines.forEach(function (ln) {
+      var m = ln.match(/^\s*[-*]\s+(.*)$/);
+      if (m) { buf.push('<li>' + m[1] + '</li>'); return; }
+      flush();
+      out.push(ln.trim() === '' ? '' : '<p>' + ln + '</p>');
+    });
+    flush();
+    return out.join('');
+  }
+
+  function render() {
+    if (!items.length) {
+      listEl.innerHTML = '<div class="empty">还没有提问记录</div>';
+      return;
+    }
+    listEl.innerHTML = items.map(function (it) {
+      var tag = it.mode === 'rag'
+        ? '<span class="tag">RAG</span>'
+        : '<span class="tag plain">对照组</span>';
+      var body = it.error
+        ? '<p class="err">请求失败：' + esc(it.error) + '</p>'
+        : mdToHtml(it.answer);
+      var meta = it.ms
+        ? '<div class="meta"><span>耗时 ' + (it.ms / 1000).toFixed(1) + ' s</span>'
+          + '<span>模式 ' + (it.mode === 'rag' ? '检索增强' : '直接提问') + '</span></div>'
+        : '';
+      return '<div class="item"><div class="q">' + tag + '<span>' + esc(it.q) + '</span></div>'
+        + '<div class="a">' + body + '</div>' + meta + '</div>';
+    }).join('');
+  }
+
+  async function ask() {
+    var q = qEl.value.trim();
+    if (!q) { qEl.focus(); return; }
+    var path = mode === 'rag' ? '/course/qa' : '/course/qa/plain';
+    goEl.disabled = true;
+    statusEl.textContent = '思考中，首次可能需要几秒…';
+    var t0 = performance.now();
+    try {
+      var res = await fetch(path, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: q })
+      });
+      var ms = Math.round(performance.now() - t0);
+      if (!res.ok) {
+        throw new Error('HTTP ' + res.status + ' ' + (await res.text()).slice(0, 120));
+      }
+      var data = await res.json();
+      items.unshift({ q: q, answer: data.answer || '(空回答)', mode: mode, ms: ms });
+      qEl.value = '';
+      statusEl.textContent = '';
+    } catch (e) {
+      items.unshift({ q: q, error: String(e.message || e), mode: mode });
+      statusEl.textContent = '';
+    } finally {
+      goEl.disabled = false;
+      render();
+    }
+  }
+
+  goEl.addEventListener('click', ask);
+  qEl.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ask(); }
+  });
+})();
+</script>
+</body>
+</html>

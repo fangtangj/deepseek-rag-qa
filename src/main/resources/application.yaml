@@ -1,0 +1,41 @@
+spring:
+  application:
+    name: deepseek-rag-qa
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ragdb
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+
+  ai:
+    # ① 先声明分工：两个供应商同时在，必须指定谁干什么
+    model:
+      chat: deepseek
+      embedding: openai
+
+    # ② 对话：DeepSeek 官方 starter，地址它自己知道，不用写 base-url
+    deepseek:
+      api-key: ${DEEPSEEK_API_KEY}
+      chat:
+        model: deepseek-chat      # 也可用 deepseek-v4-flash / deepseek-v4-pro / deepseek-reasoner
+        temperature: 0.3          # 答疑场景要稳，不要发散（官方默认 1.0）
+
+    # ③ 向量化：OpenAI 兼容协议，但地址与 Key 都指向阿里云百炼
+    openai:
+      api-key: ${DASHSCOPE_API_KEY}
+      embedding:
+        base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+        options:
+          model: text-embedding-v4
+          dimensions: 1024
+
+    vectorstore:
+      pgvector:
+        initialize-schema: true   # 启动时自动 CREATE EXTENSION vector + 建表
+        dimensions: 1024          # 必须与 embedding 输出维度一致
+        # index-type 默认 hnsw、distance-type 默认 cosine-distance，可以省略不写
+
+logging:
+  level:
+    org.springframework.ai: DEBUG   # 先打开，能看到检索命中了哪些片段
