@@ -111,8 +111,6 @@ setx DASHSCOPE_API_KEY "sk-你的百炼密钥"
 [RAG] 载入 8 份资料，切分为 60 个片段，分 6 批入库
 ```
 
-然后打开 <http://localhost:8080/index.html>。
-
 ---
 
 ## 接口说明
